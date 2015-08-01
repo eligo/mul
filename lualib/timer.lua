@@ -7,27 +7,35 @@ function timer:__init()
 	self._cbs = {}
 end
 
-local tid
+local session = 0
 function timer:timeout(ticks, repeatn, func, ...)
 	assert(type(func) == 'function')
-	tid = external.timeout(ticks, repeatn, repeatn or 1)
-	self._cbs[tid] = {func, ...}
-	return tid
+	if repeatn then 
+		assert(type(repeatn) == 'number')
+	end
+	while 1 do
+		session = session + 1
+		if not self._cbs[session] then 
+			break
+		end
+	end
+	self._cbs[session] = {func, ticks, repeatn or 1, ...}
+	external.timeout(ticks, session)
+	return session
 end
 
 local cb
-function timer:onTimer(tid, erased)
-	cb = self._cbs[tid]
+function timer:onTimer(sess)
+	cb = self._cbs[sess]
 	if cb then
-		if erased ~= 0 then
-			self._cbs[tid] = nil
+		cb[3] = cb[3] - 1
+		if cb[3] <= 0 then
+			self._cbs[sess] = nil
+		else
+			external.timeout(cb[2], sess)
 		end
-		cb[1](unpack(cb, 2))
+		cb[1](unpack(cb, 4))
 	else
-		assert(nil, string.format("error timer id %d, erased : %d", tid, erased))
+		assert(nil, string.format("error timer id %d", sess))
 	end
 end
-
---function timer:erase(tid)
-	--todo
---end

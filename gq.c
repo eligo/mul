@@ -36,16 +36,15 @@ void mq_unlock(struct mq_t *mq) {
 }
 
 void mq_push_raw(struct mq_t *mq, struct msg_t *msg) {
+	msg->next = NULL;
 	if (mq->mTail) {
 		assert(!mq->mTail->next);
 		mq->mTail->next = msg;
-		msg->next = NULL;
 		mq->mTail = msg;
 	} else {
 		assert(!mq->mHead);
 		mq->mHead = msg;
 		mq->mTail = msg;
-		msg->next = NULL;
 	}
 }
 
@@ -95,6 +94,15 @@ void gq_release() {
 struct mq_t *gq_pop() {
 	struct mq_t *mq = NULL;
 	lock_lock(mGq->mLock);
+	mq = mGq->mHead;
+	if (mq) {
+		mGq->mHead = mq->mNext;
+		if (!mGq->mHead) {
+			assert(mGq->mTail == mq);
+			mGq->mTail = NULL;
+		}
+		mq->mNext = NULL;
+	}
 	lock_unlock(mGq->mLock);
 	return mq;
 }
@@ -128,7 +136,7 @@ void gq_push_msg(struct mq_t *mq, struct msg_t *msg) {
 void gq_worker_end(struct mq_t *mq) {
 	mq_lock(mq);
 	assert(mq->mIsG);
-	if (mq_empty(mq)) {
+	if (!mq_empty(mq)) {
 		lock_lock(mGq->mLock);
 		gq_push_mq_raw(mq);
 		lock_unlock(mGq->mLock);

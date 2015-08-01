@@ -1,17 +1,32 @@
 #include "mt.h"
+#include "msg.h"
+#include "cell.h"
 #include "common/lock.h"
 #include "common/timer/timer.h"
 #include "common/global.h"
 #include <stdlib.h>
-
+#include <stdio.h>
 struct gt_t {
 	struct lock_t *mLock;
 	struct timer_t *mTimer;
 };
 
-static struct gt_t *gT = NULL;
-void _cb (void * ud, uint32_t tid, int erased) {
+struct tud_t {
+	uint32_t from;
+	uint32_t session;
+};
 
+static struct gt_t *gT = NULL;
+static void _cb (void * ud, uint32_t tid, int erased) {
+	struct msg_t *msg = (struct msg_t *)MALLOC(sizeof(*msg));
+	msg->type = MTYPE_TIMER;
+	msg->from = 0;
+	msg->session = ((struct tud_t*)ud)->session;
+	msg->len = 0;
+	msg->next = NULL;
+	if (cell_post(((struct tud_t*)ud)->from, msg) != 0)
+		FREE(msg);
+	FREE(ud);
 }
 
 int mt_init() {
@@ -27,12 +42,17 @@ void mt_release() {
 	free(gT);
 }
 
-void mt_add(uint32_t source, uint32_t ticks, uint32_t session) {
+void mt_add(uint32_t from, uint32_t ticks, uint32_t session) {
+	struct tud_t *ud = (struct tud_t*)MALLOC(sizeof(*ud));
+	ud->from = from;
+	ud->session = session;
 	lock_lock(gT->mLock);
-	timer_add(gT->mTimer, ticks, NULL, _cb, 0);
+	timer_add(gT->mTimer, ticks, ud, _cb, 1);
 	lock_unlock(gT->mLock);
 }
 
 void mt_update() {
+	lock_lock(gT->mLock);
 	timer_tick(gT->mTimer);
+	lock_unlock(gT->mLock);
 }

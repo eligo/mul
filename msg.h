@@ -2,9 +2,9 @@
 #define __MSG_HEADER__
 #include "common/global.h"
 
-#define MT_TIMER 1
-#define MT_CALL 2
-#define MT_RET 3
+#define MTYPE_TIMER 1
+#define MTYPE_CALL 2
+#define MTYPE_RET 3
 struct msg_t {
 	uint8_t type;
 	uint32_t from;
