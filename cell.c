@@ -93,6 +93,20 @@ int c_cellid(struct lua_State *lvm) {
 	return 1;
 }
 
+int c_createCell(struct lua_State *lvm) {
+	//struct cell_t *cell = lua_touserdata(lvm, lua_upvalueindex(1));
+	uint32_t id=0;
+	int err = 0;
+	const char *script = luaL_checkstring(lvm, 1);
+	err = cell_create(script, &id);
+	if (err != 0)
+		lua_pushnil(lvm);
+	else
+		lua_pushnumber(lvm, id);
+	lua_pushnumber(lvm, err);
+	return 1;
+}
+
 int cell_create(const char *script, uint32_t *idR) {
 	size_t i;
 	uint32_t id = 0;
@@ -129,6 +143,7 @@ int cell_create(const char *script, uint32_t *idR) {
 	INJECT_C_FUNC(c_unixms, "unixms");
 	INJECT_C_FUNC(c_timeout, "timeout");
 	INJECT_C_FUNC(c_cellid, "cellid");
+	INJECT_C_FUNC(c_createCell, "createCell");
 	size_t plen=0;
 	lua_getglobal(cell->mLvm, "package");
 	lua_getfield(cell->mLvm, -1, "path");

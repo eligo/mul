@@ -11,14 +11,14 @@
 
 static pthread_cond_t cond;
 static pthread_mutex_t mutex;
-int woker_num = 0;
+int woker_num = 3;
 int woking_num = 0;
 
 static void *_worker(void *ptr);
 static void *_timer(void *ptr);
 int main() {
 	pthread_t tt;
-	pthread_t tw;
+	pthread_t tw[woking_num];
 	uint32_t id=0;
 	if (pthread_mutex_init(&mutex, NULL)) {
 		fprintf(stderr, "Init mutex error");
@@ -29,19 +29,19 @@ int main() {
 		exit(1);
 	}
 	
+	time_global_reset();
 	gq_init();
 	mt_init();
 	cell_init();
 	int i = 0;
-	for (i = 0; i < 100 ; i++) {
+	for (i = 0; i < 1 ; i++) {
 		int ret = cell_create("test", &id);
 		assert(ret == 0);
 	}
 
 	pthread_create(&tt, NULL, _timer, NULL);
-	pthread_create(&tw, NULL, _worker, NULL);
-	pthread_create(&tw, NULL, _worker, NULL);
-	pthread_create(&tw, NULL, _worker, NULL);
+	for (i=0; i<woker_num; ++i) 
+		pthread_create(&tw[i], NULL, _worker, NULL);
 
 	while (1) {
 		usleep(1000000);

@@ -9,15 +9,16 @@ function c_onTimer(tid, erased)				--框架事件(某定时器到期触发) 定�
 	timer:onTimer(tid, erased)
 end
 
-local last = 0
+local last = external.unixms()
 local function aaa()
 	if external.cellid() == 1 then
-		print("lua", external.unixms() - last)
-		last = external.unixms()
+		local a = external.unixms()
+		print("lua", a - last)
+		last = a--external.unixms()
 	end
 end
-timer:timeout(10, 10000, aaa)
+timer:timeout(1, 10000, aaa)
 
-for i = 1, 1000 do
+for i = 1, 300 do
 	timer:timeout(10, 10000, function() end)
 end
