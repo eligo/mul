@@ -11,7 +11,7 @@ struct gt_t {
 	struct timer_t *mTimer;
 };
 
-struct tud_t {
+struct ud_t {
 	uint32_t from;
 	uint32_t session;
 };
@@ -21,10 +21,10 @@ static void _cb (void * ud, uint32_t tid, int erased) {
 	struct msg_t *msg = (struct msg_t *)MALLOC(sizeof(*msg));
 	msg->type = MTYPE_TIMER;
 	msg->from = 0;
-	msg->session = ((struct tud_t*)ud)->session;
+	msg->session = ((struct ud_t*)ud)->session;
 	msg->len = 0;
 	msg->next = NULL;
-	if (env_post(((struct tud_t*)ud)->from, msg) != 0)
+	if (env_post(((struct ud_t*)ud)->from, msg) != 0)
 		FREE(msg);
 	FREE(ud);
 }
@@ -43,7 +43,7 @@ void mt_release() {
 }
 
 void mt_add(uint32_t from, uint32_t ticks, uint32_t session) {
-	struct tud_t *ud = (struct tud_t*)MALLOC(sizeof(*ud));
+	struct ud_t *ud = (struct ud_t*)MALLOC(sizeof(*ud));
 	ud->from = from;
 	ud->session = session;
 	lock_lock(gT->mLock);

@@ -3,12 +3,17 @@
 struct env_t;
 struct mq_t;
 struct msg_t;
-
-struct mq_t *mq_create(struct env_t *cell);
-void mq_release(struct mq_t *mq);
+/*
+	env message queue
+*/
+struct mq_t  *mq_create(struct env_t *cell);
 struct msg_t *mq_pop(struct mq_t *mq);
 struct env_t *mq_cell(struct mq_t *mq);
+void mq_release(struct mq_t *mq);
 
+/*
+	global queue for dispatch env
+*/
 int  gq_init();
 void gq_release();
 void gq_worker_end(struct mq_t *mq);
