@@ -1,4 +1,4 @@
-#include "cell.h"
+#include "env.h"
 #include "gq.h"
 #include "mt.h"
 #include "msg.h"
@@ -32,10 +32,10 @@ int main() {
 	time_global_reset();
 	gq_init();
 	mt_init();
-	cell_init();
+	env_init();
 	int i = 0;
 	for (i = 0; i < 1 ; i++) {
-		int ret = cell_create("test", &id);
+		int ret = env_create("test", &id);
 		assert(ret == 0);
 	}
 
@@ -47,7 +47,7 @@ int main() {
 		usleep(1000000);
 	}
 	
-	cell_release();
+	env_release();
 	mt_release();
 	gq_release();
 	pthread_mutex_destroy(&mutex);
@@ -73,7 +73,7 @@ void *_worker(void *ptr) {
 			for (;;) {
 				struct msg_t *msg = mq_pop(mq);
 				if (msg) {
-					cell_process_msg(mq_cell(mq), msg);
+					env_process_msg(mq_cell(mq), msg);
 				} else {
 					gq_worker_end(mq);
 					break;

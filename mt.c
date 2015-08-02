@@ -1,6 +1,6 @@
 #include "mt.h"
 #include "msg.h"
-#include "cell.h"
+#include "env.h"
 #include "common/lock.h"
 #include "common/timer/timer.h"
 #include "common/global.h"
@@ -24,7 +24,7 @@ static void _cb (void * ud, uint32_t tid, int erased) {
 	msg->session = ((struct tud_t*)ud)->session;
 	msg->len = 0;
 	msg->next = NULL;
-	if (cell_post(((struct tud_t*)ud)->from, msg) != 0)
+	if (env_post(((struct tud_t*)ud)->from, msg) != 0)
 		FREE(msg);
 	FREE(ud);
 }

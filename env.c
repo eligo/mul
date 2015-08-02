@@ -1,4 +1,4 @@
-#include "cell.h"
+#include "env.h"
 #include "gq.h"
 #include "mt.h"
 #include "common/timer/timer.h"
@@ -10,7 +10,7 @@
 #include "lauxlib.h"
 #include <string.h>
 
-struct cell_t {
+struct env_t {
 	uint32_t mId;
 	struct lua_State *mLvm;
 	struct mq_t *mMq;
@@ -20,25 +20,25 @@ struct cell_t {
 /*  ****************************************************  */
 struct cellmgr_t {
 	struct lock_t *mLock;
-	struct cell_t **mList;
+	struct env_t **mList;
 	size_t mListLen;
 };
 
 struct cellmgr_t * gCm = NULL;
-int cell_init() {
+int env_init() {
 	gCm = (struct cellmgr_t*)MALLOC(sizeof(*gCm));
 	memset(gCm, 0, sizeof(*gCm));
 	gCm->mLock = lock_new();
 	return 0;
 }
 
-void cell_release() {
+void env_release() {
 	lock_delete(gCm->mLock);
 	free(gCm);
 }
 
-int cell_post(uint32_t tocell, struct msg_t *msg) {
-	struct cell_t *cell = NULL;
+int env_post(uint32_t tocell, struct msg_t *msg) {
+	struct env_t *cell = NULL;
 	if (!tocell || tocell > gCm->mListLen)
 		return -1;
 
@@ -60,7 +60,7 @@ int lua_error_cb(lua_State *L) {
     return 1;
 }
 
-int cell_process_msg(struct cell_t* cell, struct msg_t *msg) {
+int env_process_msg(struct env_t* cell, struct msg_t *msg) {
 	if (msg->type == MTYPE_TIMER) {
 		struct lua_State * lvm = cell->mLvm;
 		int st = lua_gettop(lvm);
@@ -80,7 +80,7 @@ int c_unixms(struct lua_State *lvm) {
 }
 
 int c_timeout(struct lua_State *lvm) {
-	struct cell_t *cell = lua_touserdata(lvm, lua_upvalueindex(1));
+	struct env_t *cell = lua_touserdata(lvm, lua_upvalueindex(1));
 	uint32_t ticks = luaL_checkinteger(lvm, 1);
 	uint32_t session = luaL_checkinteger(lvm, 2);
 	mt_add(cell->mId, ticks, session);
@@ -88,17 +88,17 @@ int c_timeout(struct lua_State *lvm) {
 }
 
 int c_cellid(struct lua_State *lvm) {
-	struct cell_t *cell = lua_touserdata(lvm, lua_upvalueindex(1));
+	struct env_t *cell = lua_touserdata(lvm, lua_upvalueindex(1));
 	lua_pushnumber(lvm, cell->mId);
 	return 1;
 }
 
-int c_createCell(struct lua_State *lvm) {
-	//struct cell_t *cell = lua_touserdata(lvm, lua_upvalueindex(1));
+int c_newEnv(struct lua_State *lvm) {
+	//struct env_t *cell = lua_touserdata(lvm, lua_upvalueindex(1));
 	uint32_t id=0;
 	int err = 0;
 	const char *script = luaL_checkstring(lvm, 1);
-	err = cell_create(script, &id);
+	err = env_create(script, &id);
 	if (err != 0)
 		lua_pushnil(lvm);
 	else
@@ -107,10 +107,10 @@ int c_createCell(struct lua_State *lvm) {
 	return 1;
 }
 
-int cell_create(const char *script, uint32_t *idR) {
+int env_create(const char *script, uint32_t *idR) {
 	size_t i;
 	uint32_t id = 0;
-	struct cell_t *cell = NULL;
+	struct env_t *cell = NULL;
 	lock_lock(gCm->mLock);
 	for(i=1; i<gCm->mListLen; ++i) {
 		if (!gCm->mList[i]) {
@@ -121,12 +121,12 @@ int cell_create(const char *script, uint32_t *idR) {
 	if (!id) {
 		id = gCm->mListLen == 0 ? 1 : gCm->mListLen;
 		size_t n = gCm->mListLen + 1024;
-		gCm->mList = (struct cell_t **)REALLOC((void*)gCm->mList, n*sizeof(struct cell_t *));
+		gCm->mList = (struct env_t **)REALLOC((void*)gCm->mList, n*sizeof(struct env_t *));
 		for (i=gCm->mListLen; i<n; ++i)
 			gCm->mList[i] = NULL;
 		gCm->mListLen = n;
 	}
-	cell = (struct cell_t *)MALLOC(sizeof(*cell));
+	cell = (struct env_t *)MALLOC(sizeof(*cell));
 	memset(cell, 0, sizeof(*cell));
 	cell->mId = id;
 	gCm->mList[id] = cell;
@@ -143,7 +143,7 @@ int cell_create(const char *script, uint32_t *idR) {
 	INJECT_C_FUNC(c_unixms, "unixms");
 	INJECT_C_FUNC(c_timeout, "timeout");
 	INJECT_C_FUNC(c_cellid, "cellid");
-	INJECT_C_FUNC(c_createCell, "createCell");
+	INJECT_C_FUNC(c_newEnv, "newEnv");
 	size_t plen=0;
 	lua_getglobal(cell->mLvm, "package");
 	lua_getfield(cell->mLvm, -1, "path");
