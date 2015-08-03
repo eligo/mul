@@ -1,6 +1,6 @@
 #include "env.h"
 #include "gq.h"
-#include "mt.h"
+#include "gt.h"
 #include "msg.h"
 #include "common/timer/timer.h"
 #include <pthread.h>
@@ -31,7 +31,7 @@ int main() {
 	
 	time_global_reset();
 	gq_init();
-	mt_init();
+	gt_init();
 	env_init();
 	int i = 0;
 	for (i = 0; i < 1 ; i++) {
@@ -48,7 +48,7 @@ int main() {
 	}
 	
 	env_release();
-	mt_release();
+	gt_release();
 	gq_release();
 	pthread_mutex_destroy(&mutex);
 	pthread_cond_destroy(&cond);
@@ -59,7 +59,7 @@ void *_timer(void *ptr) {
 	for (;;) {
 		usleep(10000);
 		time_global_reset();
-		mt_update();
+		gt_update();
 		if (__sync_add_and_fetch(&woking_num, 0) < woker_num)
 			pthread_cond_signal(&cond);
 	}

@@ -1,6 +1,6 @@
 #include "env.h"
 #include "gq.h"
-#include "mt.h"
+#include "gt.h"
 #include "common/timer/timer.h"
 #include "common/global.h"
 #include "common/lock.h"
@@ -17,36 +17,33 @@ struct env_t {
 	int idx_timer;
 };
 
-/*  ****************************************************  */
-struct cellmgr_t {
+struct envmgr_t {
 	struct lock_t *mLock;
 	struct env_t **mList;
 	size_t mListLen;
 };
 
-struct cellmgr_t * gCm = NULL;
+struct envmgr_t * gEnvMgr = NULL;
 int env_init() {
-	gCm = (struct cellmgr_t*)MALLOC(sizeof(*gCm));
-	memset(gCm, 0, sizeof(*gCm));
-	gCm->mLock = lock_new();
+	gEnvMgr = (struct envmgr_t*)MALLOC(sizeof(*gEnvMgr));
+	memset(gEnvMgr, 0, sizeof(*gEnvMgr));
+	gEnvMgr->mLock = lock_new();
 	return 0;
 }
 
 void env_release() {
-	lock_delete(gCm->mLock);
-	free(gCm);
+	lock_delete(gEnvMgr->mLock);
+	free(gEnvMgr);
 }
 
-int env_post(uint32_t tocell, struct msg_t *msg) {
-	struct env_t *cell = NULL;
-	if (!tocell || tocell > gCm->mListLen)
-		return -1;
+int env_post(uint32_t toEnv, struct msg_t *msg) {
+	struct env_t *env = NULL;
+	if (!toEnv || toEnv > gEnvMgr->mListLen) return -1;
 
-	cell = gCm->mList[tocell];
-	if (!cell)
-		return -2;
+	env = gEnvMgr->mList[toEnv];
+	if (!env) return -2;
 
-	gq_push_msg(cell->mMq, msg);
+	gq_push_msg(env->mMq, msg);
 	return 0;
 }
 
@@ -60,12 +57,12 @@ int lua_error_cb(lua_State *L) {
     return 1;
 }
 
-int env_process_msg(struct env_t* cell, struct msg_t *msg) {
+int env_process_msg(struct env_t* env, struct msg_t *msg) {
 	if (msg->type == MTYPE_TIMER) {
-		struct lua_State * lvm = cell->mLvm;
+		struct lua_State * lvm = env->mLvm;
 		int st = lua_gettop(lvm);
 		lua_pushcfunction(lvm, lua_error_cb);
-		lua_pushvalue(lvm, cell->idx_timer);
+		lua_pushvalue(lvm, env->idx_timer);
 		lua_pushnumber(lvm, msg->session);
 		lua_pcall(lvm, 1, 0, -3);
 		lua_settop(lvm, st);
@@ -80,21 +77,20 @@ int c_unixms(struct lua_State *lvm) {
 }
 
 int c_timeout(struct lua_State *lvm) {
-	struct env_t *cell = lua_touserdata(lvm, lua_upvalueindex(1));
+	struct env_t *env = lua_touserdata(lvm, lua_upvalueindex(1));
 	uint32_t ticks = luaL_checkinteger(lvm, 1);
 	uint32_t session = luaL_checkinteger(lvm, 2);
-	mt_add(cell->mId, ticks, session);
+	gt_add(env->mId, ticks, session);
 	return 0;
 }
 
-int c_cellid(struct lua_State *lvm) {
-	struct env_t *cell = lua_touserdata(lvm, lua_upvalueindex(1));
-	lua_pushnumber(lvm, cell->mId);
+int c_id(struct lua_State *lvm) {
+	struct env_t *env = lua_touserdata(lvm, lua_upvalueindex(1));
+	lua_pushnumber(lvm, env->mId);
 	return 1;
 }
 
 int c_newEnv(struct lua_State *lvm) {
-	//struct env_t *cell = lua_touserdata(lvm, lua_upvalueindex(1));
 	uint32_t id=0;
 	int err = 0;
 	const char *script = luaL_checkstring(lvm, 1);
@@ -110,70 +106,71 @@ int c_newEnv(struct lua_State *lvm) {
 int env_create(const char *script, uint32_t *idR) {
 	size_t i;
 	uint32_t id = 0;
-	struct env_t *cell = NULL;
-	lock_lock(gCm->mLock);
-	for(i=1; i<gCm->mListLen; ++i) {
-		if (!gCm->mList[i]) {
+	struct env_t *env = NULL;
+	lock_lock(gEnvMgr->mLock);
+	for(i=1; i<gEnvMgr->mListLen; ++i) {
+		if (!gEnvMgr->mList[i]) {
 			id = i;
 			break;
 		}
 	}
 	if (!id) {
-		id = gCm->mListLen == 0 ? 1 : gCm->mListLen;
-		size_t n = gCm->mListLen + 1024;
-		gCm->mList = (struct env_t **)REALLOC((void*)gCm->mList, n*sizeof(struct env_t *));
-		for (i=gCm->mListLen; i<n; ++i)
-			gCm->mList[i] = NULL;
-		gCm->mListLen = n;
+		id = gEnvMgr->mListLen == 0 ? 1 : gEnvMgr->mListLen;
+		size_t n = gEnvMgr->mListLen + 1024;
+		gEnvMgr->mList = (struct env_t **)REALLOC((void*)gEnvMgr->mList, n*sizeof(struct env_t *));
+		for (i = gEnvMgr->mListLen; i<n; ++i)
+			gEnvMgr->mList[i] = NULL;
+		gEnvMgr->mListLen = n;
 	}
-	cell = (struct env_t *)MALLOC(sizeof(*cell));
-	memset(cell, 0, sizeof(*cell));
-	cell->mId = id;
-	gCm->mList[id] = cell;
-	lock_unlock(gCm->mLock);
-	cell->mMq = mq_create(cell);
-	cell->mLvm = lua_open();
-	luaL_openlibs(cell->mLvm);
+	env = (struct env_t *)MALLOC(sizeof(*env));
+	memset(env, 0, sizeof(*env));
+	env->mId = id;
+	gEnvMgr->mList[id] = env;
+	lock_unlock(gEnvMgr->mLock);
+	env->mMq = mq_create(env);
+	env->mLvm = lua_open();
+	luaL_openlibs(env->mLvm);
 	//注入c接口
-	if(luaL_dostring(cell->mLvm, "local class = require (\"lualib.class\") return class.singleton(\"external\")") != 0) {
-		fprintf(stderr, "%s\n", lua_tostring(cell->mLvm, -1));
+	if(luaL_dostring(env->mLvm, "return require (\"lualib.env\")") != 0) {
+		fprintf(stderr, "%s\n", lua_tostring(env->mLvm, -1));
 		goto fail;
 	}
-#define INJECT_C_FUNC(func, name) lua_pushlightuserdata(cell->mLvm, cell); lua_pushcclosure(cell->mLvm, func, 1); lua_setfield(cell->mLvm, -2, name);
-	INJECT_C_FUNC(c_unixms, "unixms");
-	INJECT_C_FUNC(c_timeout, "timeout");
-	INJECT_C_FUNC(c_cellid, "cellid");
+#define INJECT_C_FUNC(func, name) lua_pushlightuserdata(env->mLvm, env); lua_pushcclosure(env->mLvm, func, 1); lua_setfield(env->mLvm, -2, name);
+	INJECT_C_FUNC(c_unixms, "unixMs");
+	INJECT_C_FUNC(c_timeout, "timeoutRaw");
+	INJECT_C_FUNC(c_id, "id");
 	INJECT_C_FUNC(c_newEnv, "newEnv");
+	
 	size_t plen=0;
-	lua_getglobal(cell->mLvm, "package");
-	lua_getfield(cell->mLvm, -1, "path");
-	const char* path = luaL_checklstring(cell->mLvm, -1, &plen);
+	lua_getglobal(env->mLvm, "package");
+	lua_getfield(env->mLvm, -1, "path");
+	const char* path = luaL_checklstring(env->mLvm, -1, &plen);
 	char* npath = MALLOC(plen + strlen(script) + 8);
 	sprintf(npath, "%s;%s/?.lua", path, script);
-	lua_pushstring(cell->mLvm, npath);
-	lua_setfield(cell->mLvm, -3, "path");
+	lua_pushstring(env->mLvm, npath);
+	lua_setfield(env->mLvm, -3, "path");
 	FREE(npath);
 	//加载lua脚本的首个文件(文件名已定死)
 	char* loadf = MALLOC(strlen(script) + sizeof("/interface.lua") + 1);
 	strcpy(loadf, script);
 	strcat(loadf, "/interface.lua");
-	if (luaL_dofile(cell->mLvm, loadf) != 0) {
+	if (luaL_dofile(env->mLvm, loadf) != 0) {
 		FREE(loadf);
-		fprintf(stderr, "%s\n", lua_tostring(cell->mLvm, -1));
+		fprintf(stderr, "%s\n", lua_tostring(env->mLvm, -1));
 		goto fail;
 	}
 	FREE(loadf);
-#define CACHE_L_EVHANDLE(name, idx) lua_getglobal(cell->mLvm, name); if (!lua_isfunction (cell->mLvm, -1)) {fprintf(stderr, "cannot find event handle'%s'",name);goto fail;} else {*idx=lua_gettop(cell->mLvm);}
-		CACHE_L_EVHANDLE("c_onTimer", &cell->idx_timer);
+#define CACHE_L_EVHANDLE(name, idx) lua_getglobal(env->mLvm, name); if (!lua_isfunction (env->mLvm, -1)) {fprintf(stderr, "cannot find event handle'%s'",name);goto fail;} else {*idx=lua_gettop(env->mLvm);}
+		CACHE_L_EVHANDLE("c_onTimer", &env->idx_timer);
 	*idR = id;
 	return 0;
 fail:
-	if (cell) {
-		if (cell->mLvm)
-			lua_close(cell->mLvm);
-		if (cell->mMq)
-			mq_release(cell->mMq);
-		FREE(cell);
+	if (env) {
+		if (env->mLvm)
+			lua_close(env->mLvm);
+		if (env->mMq)
+			mq_release(env->mMq);
+		FREE(env);
 	}
 	return -1;
 }

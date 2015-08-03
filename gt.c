@@ -1,4 +1,4 @@
-#include "mt.h"
+#include "gt.h"
 #include "msg.h"
 #include "env.h"
 #include "common/lock.h"
@@ -29,20 +29,20 @@ static void _cb (void * ud, uint32_t tid, int erased) {
 	FREE(ud);
 }
 
-int mt_init() {
+int gt_init() {
 	gT = (struct gt_t*)MALLOC(sizeof(*gT));
 	gT->mLock = lock_new();
 	gT->mTimer = timer_new(100*60*10);
 	return 0;
 }
 
-void mt_release() {
+void gt_release() {
 	lock_delete(gT->mLock);
 	timer_destroy(gT->mTimer);
 	free(gT);
 }
 
-void mt_add(uint32_t from, uint32_t ticks, uint32_t session) {
+void gt_add(uint32_t from, uint32_t ticks, uint32_t session) {
 	struct ud_t *ud = (struct ud_t*)MALLOC(sizeof(*ud));
 	ud->from = from;
 	ud->session = session;
@@ -51,7 +51,7 @@ void mt_add(uint32_t from, uint32_t ticks, uint32_t session) {
 	lock_unlock(gT->mLock);
 }
 
-void mt_update() {
+void gt_update() {
 	lock_lock(gT->mLock);
 	timer_tick(gT->mTimer);
 	lock_unlock(gT->mLock);
