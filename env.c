@@ -61,16 +61,6 @@ int lua_error_cb(lua_State *L) {
 
 int env_process_msg(struct env_t* env, struct msg_t *msg) {
 	switch(msg->type) {
-	case MTYPE_TIMER: {
-		struct lua_State * lvm = env->mLvm;
-		int st = lua_gettop(lvm);
-		lua_pushcfunction(lvm, lua_error_cb);
-		lua_pushvalue(lvm, env->idx_onTimer);
-		lua_pushnumber(lvm, msg->session);
-		lua_pcall(lvm, 1, 0, -3);
-		lua_settop(lvm, st);
-		break;
-	}
 	case MTYPE_POST: {
 		struct lua_State * lvm = env->mLvm;
 		int st = lua_gettop(lvm);
@@ -81,11 +71,24 @@ int env_process_msg(struct env_t* env, struct msg_t *msg) {
 		lua_settop(lvm, st);
 		break;
 	}
+	case MTYPE_TIMER: {
+		struct lua_State * lvm = env->mLvm;
+		int st = lua_gettop(lvm);
+		lua_pushcfunction(lvm, lua_error_cb);
+		lua_pushvalue(lvm, env->idx_onTimer);
+		lua_pushnumber(lvm, msg->session);
+		lua_pcall(lvm, 1, 0, -3);
+		lua_settop(lvm, st);
+		break;
+	}
 	}
 	FREE(msg);
 	return 0;
 }
 
+/*
+	external interface
+*/
 int c_unixMs(struct lua_State *lvm) {
 	lua_pushnumber(lvm, (lua_Number)time_ms());
 	return 1;
@@ -138,6 +141,49 @@ int c_postRaw(struct lua_State *lvm) {
 	return 0;
 }
 
+/*
+	create abount
+*/
+typedef int (*clFunc)(struct lua_State *);
+static int _inject(struct env_t *env, clFunc func, const char *fname) {
+	lua_pushlightuserdata(env->mLvm, env); 
+	lua_pushcclosure(env->mLvm, func, 1); 
+	lua_setfield(env->mLvm, -2, fname);
+	return 0;
+}
+
+static int _boot(struct env_t *env, const char *script) {
+	size_t plen=0;
+	const char *path = NULL;
+	char *tmpstr = NULL;
+	lua_getglobal(env->mLvm, "package");
+	lua_getfield(env->mLvm, -1, "path");
+	path = luaL_checklstring(env->mLvm, -1, &plen);
+	tmpstr = MALLOC(plen + strlen(script) + 16 + sizeof("/interface.lua"));
+	sprintf(tmpstr, "%s;%s/?.lua", path, script);
+	lua_pushstring(env->mLvm, tmpstr);
+	lua_setfield(env->mLvm, -3, "path");
+	strcpy(tmpstr, script);
+	strcat(tmpstr, "/interface.lua");
+	if (luaL_dofile(env->mLvm, tmpstr) != 0) {
+		FREE(tmpstr);
+		fprintf(stderr, "%s\n", lua_tostring(env->mLvm, -1));
+		return -1;
+	}
+	FREE(tmpstr);
+	return 0;
+}
+
+static int _locate(struct env_t *env, const char *name, int *idx) {
+	lua_getglobal(env->mLvm, name); 
+	if (!lua_isfunction (env->mLvm, -1)) {
+		fprintf(stderr, "cannot locate framework handle:'%s'",name);
+		return -1;
+	} else 
+		*idx=lua_gettop(env->mLvm);
+	return 0;
+}
+
 int env_create(const char *script, uint32_t *idR) {
 	size_t i;
 	uint32_t id = 0;
@@ -162,46 +208,27 @@ int env_create(const char *script, uint32_t *idR) {
 	env->mId = id;
 	gEnvMgr->mList[id] = env;
 	lock_unlock(gEnvMgr->mLock);
+	//init env
 	env->mMq = mq_create(env);
 	env->mLvm = lua_open();
 	luaL_openlibs(env->mLvm);
 	luaopen_cmsgpack(env->mLvm);
-	//注入c接口
 	if(luaL_dostring(env->mLvm, "return require (\"lualib.env\")") != 0) {
 		fprintf(stderr, "%s\n", lua_tostring(env->mLvm, -1));
 		goto fail;
 	}
+	//inject c func
+	_inject(env, c_unixMs, "unixMs");
+	_inject(env, c_timeoutRaw, "timeoutRaw");
+	_inject(env, c_id, "id");
+	_inject(env, c_newEnv, "newEnv");
+	_inject(env, c_postRaw, "postRaw");
+	//locate framework func
+	if (_locate(env, "c_onTimer", &env->idx_onTimer)) goto fail;
+	if (_locate(env, "c_onPosed", &env->idx_onPosed)) goto fail;
+	//boot entry script
+	if (_boot(env, script))	goto fail;
 
-#define INJECT_C_FUNC(func, name) lua_pushlightuserdata(env->mLvm, env); lua_pushcclosure(env->mLvm, func, 1); lua_setfield(env->mLvm, -2, name);
-	INJECT_C_FUNC(c_unixMs, "unixMs");
-	INJECT_C_FUNC(c_timeoutRaw, "timeoutRaw");
-	INJECT_C_FUNC(c_id, "id");
-	INJECT_C_FUNC(c_newEnv, "newEnv");
-	INJECT_C_FUNC(c_postRaw, "postRaw");
-	
-	size_t plen=0;
-	lua_getglobal(env->mLvm, "package");
-	lua_getfield(env->mLvm, -1, "path");
-	const char* path = luaL_checklstring(env->mLvm, -1, &plen);
-	char* npath = MALLOC(plen + strlen(script) + 8);
-	sprintf(npath, "%s;%s/?.lua", path, script);
-	lua_pushstring(env->mLvm, npath);
-	lua_setfield(env->mLvm, -3, "path");
-	FREE(npath);
-	//加载lua脚本的首个文件(文件名已定死)
-	char* loadf = MALLOC(strlen(script) + sizeof("/interface.lua") + 1);
-	strcpy(loadf, script);
-	strcat(loadf, "/interface.lua");
-	if (luaL_dofile(env->mLvm, loadf) != 0) {
-		FREE(loadf);
-		fprintf(stderr, "%s\n", lua_tostring(env->mLvm, -1));
-		goto fail;
-	}
-	FREE(loadf);
-
-#define CACHE_L_EVHANDLE(name, idx) lua_getglobal(env->mLvm, name); if (!lua_isfunction (env->mLvm, -1)) {fprintf(stderr, "cannot find event handle'%s'",name);goto fail;} else {*idx=lua_gettop(env->mLvm);}
-		CACHE_L_EVHANDLE("c_onTimer", &env->idx_onTimer);
-		CACHE_L_EVHANDLE("c_onPosed", &env->idx_onPosed);
 	*idR = id;
 	return 0;
 fail:

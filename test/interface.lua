@@ -1,9 +1,8 @@
---这个文件主要实现供底层驱动上层的函数(c_onXxxx这种)
 package.cpath = string.format("%s;%s?.so", package.cpath, './3rd/luaso/')	--设置外部c库的搜索路径
 local env = require("lualib.class").singleton("env")
 
 local bs = {}
-for i = 1, 10 do
+for i = 1, 1000 do
 	bs[i] = env.newEnv("testb")
 end
 

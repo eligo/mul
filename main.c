@@ -11,47 +11,43 @@
 
 static pthread_cond_t cond;
 static pthread_mutex_t mutex;
-int woker_num = 3;
-int woking_num = 0;
-
+int wokerNum = 3;
+int wokingNum = 0;
 static void *tWorker(void *ptr);
 static void *tTimer(void *ptr);
 int main() {
+	int i = 0;
+	int ret = 0;
+	uint32_t bootId = 0;
 	pthread_t tt;
-	pthread_t tw[woking_num];
-	uint32_t id=0;
+	pthread_t tw[wokingNum];
 	if (pthread_mutex_init(&mutex, NULL)) {
 		fprintf(stderr, "Init mutex error");
 		exit(1);
 	}
+
 	if (pthread_cond_init(&cond, NULL)) {
 		fprintf(stderr, "Init cond error");
 		exit(1);
 	}
 	
 	time_global_reset();
+	env_init();
 	gq_init();
 	gt_init();
-	env_init();
-	int i = 0;
-	//for (i = 0; i < 1 ; i++) {
-		int ret = env_create("test", &id);
-		assert(ret == 0);
-		//ret = env_create("testb", &id);
-		//assert(ret == 0);
-	//}
-
+	ret = env_create("test", &bootId);
+	assert(ret == 0);
 	pthread_create(&tt, NULL, tTimer, NULL);
-	for (i=0; i<woker_num; ++i) 
+	for (i=0; i<wokerNum; ++i) 
 		pthread_create(&tw[i], NULL, tWorker, NULL);
 
-	while (1) {
+	while (1) {	//todo signal hook
 		usleep(1000000);
 	}
 	
-	env_release();
 	gt_release();
 	gq_release();
+	env_release();
 	pthread_mutex_destroy(&mutex);
 	pthread_cond_destroy(&cond);
 	return 1;
@@ -62,7 +58,7 @@ void *tTimer(void *ptr) {
 		usleep(10000);
 		time_global_reset();
 		gt_update();
-		if (__sync_add_and_fetch(&woking_num, 0) < woker_num)
+		if (__sync_add_and_fetch(&wokingNum, 0) < wokerNum)
 			pthread_cond_signal(&cond);
 	}
 	return NULL;
@@ -86,9 +82,9 @@ void *tWorker(void *ptr) {
 				fprintf(stderr, "lock mutex error");
 				exit(1);
 			}
-			__sync_fetch_and_sub(&woking_num, 1);
+			__sync_fetch_and_sub(&wokingNum, 1);
 			pthread_cond_wait(&cond, &mutex);
-			__sync_fetch_and_add(&woking_num, 1);
+			__sync_fetch_and_add(&wokingNum, 1);
 			if (pthread_mutex_unlock(&mutex)) {
 				fprintf(stderr, "unlock mutex error");
 				exit(1);
