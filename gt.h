@@ -1,7 +1,9 @@
 #ifndef __M_T_HEADER__
 #define __M_T_HEADER__
 #include <stdint.h>
-
+/*
+	global timer
+*/
 int  gt_init();
 void gt_release();
 void gt_update();

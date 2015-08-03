@@ -9,16 +9,16 @@ struct mq_t {
 	struct lock_t *mLock;
 	struct msg_t *mHead;
 	struct msg_t *mTail;
-	struct env_t *mCell;
+	struct env_t *mEnv;
 	int mIsG;
 	struct mq_t *mNext;
 };
 
-struct mq_t *mq_create(struct env_t *cell) {
+struct mq_t *mq_create(struct env_t *mEnv) {
 	struct mq_t *mq = (struct mq_t *)MALLOC(sizeof(*mq));
 	memset(mq, 0, sizeof(*mq));
 	mq->mLock = lock_new();
-	mq->mCell = cell;
+	mq->mEnv = mEnv;
 	return mq;
 }
 
@@ -67,17 +67,14 @@ int mq_empty(struct mq_t *mq) {
 	return NULL == mq->mHead ? 1 : 0;
 }
 
-struct env_t *mq_cell(struct mq_t *mq) {
-	return mq->mCell;
+struct env_t *mq_env(struct mq_t *mq) {
+	return mq->mEnv;
 }
 
 
-
-
-/*******************************************************************************************************************************************************/
-
-
-
+/*
+	gq
+*/
 
 struct gq_t {
 	struct mq_t *mHead;

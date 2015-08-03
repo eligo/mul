@@ -3,7 +3,9 @@
 #include <stdint.h>
 struct env_t;
 struct msg_t;
-
+/*
+	enviroment of actor
+*/
 int  env_init();
 void env_release();
 int  env_create(const char *script, uint32_t *id);

@@ -4,6 +4,7 @@
 #include "common/timer/timer.h"
 #include "common/global.h"
 #include "common/lock.h"
+#include "common/lserial.h"
 #include "msg.h"
 #include "lua.h"
 #include "lualib.h"
@@ -14,7 +15,8 @@ struct env_t {
 	uint32_t mId;
 	struct lua_State *mLvm;
 	struct mq_t *mMq;
-	int idx_timer;
+	int idx_onTimer;
+	int idx_onPosed;
 };
 
 struct envmgr_t {
@@ -58,25 +60,38 @@ int lua_error_cb(lua_State *L) {
 }
 
 int env_process_msg(struct env_t* env, struct msg_t *msg) {
-	if (msg->type == MTYPE_TIMER) {
+	switch(msg->type) {
+	case MTYPE_TIMER: {
 		struct lua_State * lvm = env->mLvm;
 		int st = lua_gettop(lvm);
 		lua_pushcfunction(lvm, lua_error_cb);
-		lua_pushvalue(lvm, env->idx_timer);
+		lua_pushvalue(lvm, env->idx_onTimer);
 		lua_pushnumber(lvm, msg->session);
 		lua_pcall(lvm, 1, 0, -3);
 		lua_settop(lvm, st);
+		break;
+	}
+	case MTYPE_POST: {
+		struct lua_State * lvm = env->mLvm;
+		int st = lua_gettop(lvm);
+		lua_pushcfunction(lvm, lua_error_cb);
+		lua_pushvalue(lvm, env->idx_onPosed);
+		lua_pushlstring(lvm, ((char*)msg)+sizeof(*msg), msg->len);
+		lua_pcall(lvm, 1, 0, -3);
+		lua_settop(lvm, st);
+		break;
+	}
 	}
 	FREE(msg);
 	return 0;
 }
 
-int c_unixms(struct lua_State *lvm) {
+int c_unixMs(struct lua_State *lvm) {
 	lua_pushnumber(lvm, (lua_Number)time_ms());
 	return 1;
 }
 
-int c_timeout(struct lua_State *lvm) {
+int c_timeoutRaw(struct lua_State *lvm) {
 	struct env_t *env = lua_touserdata(lvm, lua_upvalueindex(1));
 	uint32_t ticks = luaL_checkinteger(lvm, 1);
 	uint32_t session = luaL_checkinteger(lvm, 2);
@@ -100,7 +115,27 @@ int c_newEnv(struct lua_State *lvm) {
 	else
 		lua_pushnumber(lvm, id);
 	lua_pushnumber(lvm, err);
-	return 1;
+	return 2;
+}
+
+int c_postRaw(struct lua_State *lvm) {
+	int ret = 0;
+	size_t plen = 0;
+	struct env_t *env = lua_touserdata(lvm, lua_upvalueindex(1));
+	uint32_t to = luaL_checkinteger(lvm, 1);
+	const char *pack = luaL_checklstring(lvm, 2, &plen);
+	struct msg_t *msg = (struct msg_t *)MALLOC(sizeof(*msg) + plen);
+	msg->type = MTYPE_POST;
+	msg->from = env->mId;
+	msg->session = 0;
+	msg->len = plen;
+	msg->next = NULL;
+	memcpy(((char*)msg)+sizeof(*msg), pack, plen);
+	ret = env_post(to, msg);
+	if (ret != 0)
+		FREE(msg);
+	lua_pushinteger(lvm, ret);
+	return 0;
 }
 
 int env_create(const char *script, uint32_t *idR) {
@@ -130,16 +165,19 @@ int env_create(const char *script, uint32_t *idR) {
 	env->mMq = mq_create(env);
 	env->mLvm = lua_open();
 	luaL_openlibs(env->mLvm);
+	luaopen_cmsgpack(env->mLvm);
 	//注入c接口
 	if(luaL_dostring(env->mLvm, "return require (\"lualib.env\")") != 0) {
 		fprintf(stderr, "%s\n", lua_tostring(env->mLvm, -1));
 		goto fail;
 	}
+
 #define INJECT_C_FUNC(func, name) lua_pushlightuserdata(env->mLvm, env); lua_pushcclosure(env->mLvm, func, 1); lua_setfield(env->mLvm, -2, name);
-	INJECT_C_FUNC(c_unixms, "unixMs");
-	INJECT_C_FUNC(c_timeout, "timeoutRaw");
+	INJECT_C_FUNC(c_unixMs, "unixMs");
+	INJECT_C_FUNC(c_timeoutRaw, "timeoutRaw");
 	INJECT_C_FUNC(c_id, "id");
 	INJECT_C_FUNC(c_newEnv, "newEnv");
+	INJECT_C_FUNC(c_postRaw, "postRaw");
 	
 	size_t plen=0;
 	lua_getglobal(env->mLvm, "package");
@@ -160,8 +198,10 @@ int env_create(const char *script, uint32_t *idR) {
 		goto fail;
 	}
 	FREE(loadf);
+
 #define CACHE_L_EVHANDLE(name, idx) lua_getglobal(env->mLvm, name); if (!lua_isfunction (env->mLvm, -1)) {fprintf(stderr, "cannot find event handle'%s'",name);goto fail;} else {*idx=lua_gettop(env->mLvm);}
-		CACHE_L_EVHANDLE("c_onTimer", &env->idx_timer);
+		CACHE_L_EVHANDLE("c_onTimer", &env->idx_onTimer);
+		CACHE_L_EVHANDLE("c_onPosed", &env->idx_onPosed);
 	*idR = id;
 	return 0;
 fail:

@@ -14,8 +14,8 @@ static pthread_mutex_t mutex;
 int woker_num = 3;
 int woking_num = 0;
 
-static void *_worker(void *ptr);
-static void *_timer(void *ptr);
+static void *tWorker(void *ptr);
+static void *tTimer(void *ptr);
 int main() {
 	pthread_t tt;
 	pthread_t tw[woking_num];
@@ -34,14 +34,16 @@ int main() {
 	gt_init();
 	env_init();
 	int i = 0;
-	for (i = 0; i < 1 ; i++) {
+	//for (i = 0; i < 1 ; i++) {
 		int ret = env_create("test", &id);
 		assert(ret == 0);
-	}
+		//ret = env_create("testb", &id);
+		//assert(ret == 0);
+	//}
 
-	pthread_create(&tt, NULL, _timer, NULL);
+	pthread_create(&tt, NULL, tTimer, NULL);
 	for (i=0; i<woker_num; ++i) 
-		pthread_create(&tw[i], NULL, _worker, NULL);
+		pthread_create(&tw[i], NULL, tWorker, NULL);
 
 	while (1) {
 		usleep(1000000);
@@ -55,7 +57,7 @@ int main() {
 	return 1;
 }
 
-void *_timer(void *ptr) {
+void *tTimer(void *ptr) {
 	for (;;) {
 		usleep(10000);
 		time_global_reset();
@@ -66,14 +68,14 @@ void *_timer(void *ptr) {
 	return NULL;
 }
 
-void *_worker(void *ptr) {
+void *tWorker(void *ptr) {
 	for (;;) {
 		struct mq_t *mq = gq_pop();
 		if (mq) {
 			for (;;) {
 				struct msg_t *msg = mq_pop(mq);
 				if (msg) {
-					env_process_msg(mq_cell(mq), msg);
+					env_process_msg(mq_env(mq), msg);
 				} else {
 					gq_worker_end(mq);
 					break;
