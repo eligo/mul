@@ -11,7 +11,7 @@
 
 static pthread_cond_t cond;
 static pthread_mutex_t mutex;
-int wokerNum = 3;
+int wokerNum = 1;
 int wokingNum = 0;
 static void *tWorker(void *ptr);
 static void *tTimer(void *ptr);
