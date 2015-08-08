@@ -218,7 +218,10 @@ int so_accept(uint32_t env, int sid) {
 	int id = 0;
 	struct so_t *lso = _grabSAndLock(sid);
 	if (!lso) return -1;
-	if (lso->mState != so_e_listening) return -2;
+	if (lso->mState != so_e_listening) {
+		_unlockS(lso);
+		return -2;
+	}
 acce:
 	fd = accept(lso->mFd, &addr, &addrlen);
 	if (fd == -1) {
@@ -243,14 +246,17 @@ acce:
 		return -7;
 	}
 	_unlockS(lso);
+	_lockR(nso);
+	_lockW(nso);
 	_lockE(nso);
 	nso->mEnv = env;
 	nso->mState = so_e_established;
 	id = nso->mId;
 	_unlockE(nso);
+	_unlockW(nso);
+	_unlockR(nso);
 	_unlockS(nso);
 	return id;
-
 erro:
 	_lockE(lso);
 	if (lso->mState != so_e_errored) {
@@ -264,7 +270,8 @@ erro:
 
 int so_close(uint32_t env, int sid) {
 	struct so_t *so = _grabSAndLock(sid);
-	if (!so) return -1;
+	if (!so) 
+		return -1;
 	
 	_lockR(so);
 	_lockW(so);
@@ -290,7 +297,7 @@ int so_close(uint32_t env, int sid) {
 }
 
 int so_add(uint32_t env, int sid) {
-	struct so_t *so = _queryAndLock(sid);
+	struct so_t *so = _querySAndLock(sid);
 	if (!so) 
 		return -1;
 
