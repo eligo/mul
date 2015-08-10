@@ -1,6 +1,7 @@
 #include "env.h"
 #include "gq.h"
 #include "gt.h"
+#include "gs.h"
 #include "msg.h"
 #include "common/timer/timer.h"
 #include <pthread.h>
@@ -15,11 +16,12 @@ int wokerNum = 1;
 int wokingNum = 0;
 static void *tWorker(void *ptr);
 static void *tTimer(void *ptr);
+static void *tSocket(void *ptr);
 int main() {
 	int i = 0;
 	int ret = 0;
 	uint32_t bootId = 0;
-	pthread_t tt;
+	pthread_t tt, ts;
 	pthread_t tw[wokingNum];
 	if (pthread_mutex_init(&mutex, NULL)) {
 		fprintf(stderr, "Init mutex error");
@@ -35,9 +37,11 @@ int main() {
 	env_init();
 	gq_init();
 	gt_init();
+	gs_init();
 	ret = env_create("test", &bootId);
 	assert(ret == 0);
 	pthread_create(&tt, NULL, tTimer, NULL);
+	pthread_create(&ts, NULL, tSocket, NULL);
 	for (i=0; i<wokerNum; ++i) 
 		pthread_create(&tw[i], NULL, tWorker, NULL);
 
@@ -45,6 +49,7 @@ int main() {
 		usleep(1000000);
 	}
 	
+	gs_release();
 	gt_release();
 	gq_release();
 	env_release();
@@ -60,6 +65,13 @@ void *tTimer(void *ptr) {
 		gt_update();
 		if (__sync_add_and_fetch(&wokingNum, 0) < wokerNum)
 			pthread_cond_signal(&cond);
+	}
+	return NULL;
+}
+
+void *tSocket(void *ptr) {
+	for (;;) {
+		gs_update();
 	}
 	return NULL;
 }

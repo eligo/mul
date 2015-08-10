@@ -1,6 +1,7 @@
 #include "env.h"
 #include "gq.h"
 #include "gt.h"
+#include "gs.h"
 #include "common/timer/timer.h"
 #include "common/global.h"
 #include "common/lock.h"
@@ -17,6 +18,8 @@ struct env_t {
 	struct mq_t *mMq;
 	int idx_onTimer;
 	int idx_onPosed;
+	int idx_onAcceptable;
+	int idx_onReadable;
 };
 
 struct envmgr_t {
@@ -76,6 +79,26 @@ int env_process_msg(struct env_t* env, struct msg_t *msg) {
 		int st = lua_gettop(lvm);
 		lua_pushcfunction(lvm, lua_error_cb);
 		lua_pushvalue(lvm, env->idx_onTimer);
+		lua_pushnumber(lvm, msg->session);
+		lua_pcall(lvm, 1, 0, -3);
+		lua_settop(lvm, st);
+		break;
+	}
+	case MTYPE_SOCKET_ACCEPTABLE: {
+		struct lua_State * lvm = env->mLvm;
+		int st = lua_gettop(lvm);
+		lua_pushcfunction(lvm, lua_error_cb);
+		lua_pushvalue(lvm, env->idx_onAcceptable);
+		lua_pushnumber(lvm, msg->session);
+		lua_pcall(lvm, 1, 0, -3);
+		lua_settop(lvm, st);
+		break;
+	}
+	case MTYPE_SOCKET_READABLE: {
+		struct lua_State * lvm = env->mLvm;
+		int st = lua_gettop(lvm);
+		lua_pushcfunction(lvm, lua_error_cb);
+		lua_pushvalue(lvm, env->idx_onReadable);
 		lua_pushnumber(lvm, msg->session);
 		lua_pcall(lvm, 1, 0, -3);
 		lua_settop(lvm, st);
@@ -141,6 +164,63 @@ int c_postRaw(struct lua_State *lvm) {
 	return 0;
 }
 
+int c_socketListen(lua_State *lvm) {
+	struct env_t *env = lua_touserdata(lvm, lua_upvalueindex(1));
+	const char *ip = luaL_checkstring(lvm, 1);
+	int port = luaL_checkinteger(lvm, 2);
+	int sid = so_listen(env->mId, ip, port);
+	lua_pushinteger(lvm, sid);
+	return 1;
+}
+
+int c_socketAccept(lua_State *lvm) {
+	struct env_t *env = lua_touserdata(lvm, lua_upvalueindex(1));
+	int lid = luaL_checkinteger(lvm, 1);
+	int sid = so_accept(env->mId, lid);
+	lua_pushinteger(lvm, sid);
+	return 1;
+}
+
+int c_socketAdd(lua_State *lvm) {
+	struct env_t *env = lua_touserdata(lvm, lua_upvalueindex(1));
+	int sid = luaL_checkinteger(lvm, 1);
+	int ret = so_add(env->mId, sid);
+	lua_pushinteger(lvm, ret);
+	return 1;
+}
+
+int c_socketRead(lua_State *lvm) {
+	char msg[128];
+	//struct env_t *env = lua_touserdata(lvm, lua_upvalueindex(1));
+	int sid = luaL_checkinteger(lvm, 1);
+	//int len = luaL_checkinteger(lvm, 2);
+	int ret = so_read(sid, msg, 128);
+	if (ret < 0) {
+		lua_pushnil(lvm);
+		lua_pushinteger(lvm, ret);
+	} else {
+		lua_pushlstring(lvm, msg, ret);
+		lua_pushinteger(lvm, ret);
+	}
+	return 2;
+}
+
+int c_socketWrite(lua_State *lvm) {
+	size_t len = 0;
+	int sid = luaL_checkinteger(lvm, 1);
+	const char *str = luaL_checklstring(lvm, 2, &len);
+	int ret = so_write(sid, str, len);
+	lua_pushinteger(lvm, ret);
+	return 1;
+}
+
+int c_socketClose(lua_State *lvm) {
+	struct env_t *env = lua_touserdata(lvm, lua_upvalueindex(1));
+	int sid = luaL_checkinteger(lvm, 1);
+	int ret = so_close(env->mId, sid);
+	lua_pushinteger(lvm, ret);
+	return 1;
+}
 /*
 	create abount
 */
@@ -223,9 +303,17 @@ int env_create(const char *script, uint32_t *idR) {
 	_inject(env, c_id, "id");
 	_inject(env, c_newEnv, "newEnv");
 	_inject(env, c_postRaw, "postRaw");
+	_inject(env, c_socketListen, "socketListenRaw");
+	_inject(env, c_socketAccept, "socketAcceptRaw");
+	_inject(env, c_socketAdd, "socketAddRaw");
+	_inject(env, c_socketRead, "socketReadRaw");
+	_inject(env, c_socketWrite, "socketWriteRaw");
+	_inject(env, c_socketClose, "socketCloseRaw");
 	//locate framework func
 	if (_locate(env, "c_onTimer", &env->idx_onTimer)) goto fail;
 	if (_locate(env, "c_onPosed", &env->idx_onPosed)) goto fail;
+	if (_locate(env, "c_onAcceptable", &env->idx_onAcceptable)) goto fail;
+	if (_locate(env, "c_onReadable", &env->idx_onReadable)) goto fail;
 	//boot entry script
 	if (_boot(env, script))	goto fail;
 
